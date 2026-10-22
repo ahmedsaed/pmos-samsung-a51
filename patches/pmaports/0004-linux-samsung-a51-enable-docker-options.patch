@@ -5,14 +5,21 @@ Docker's contrib/check-config.sh reported these "Generally Necessary"
 options missing: CGROUP_DEVICE, VETH, BRIDGE, BRIDGE_NETFILTER,
 IP6_NF_NAT, IP6_NF_TARGET_MASQUERADE, NETFILTER_XT_MATCH_ADDRTYPE,
 NETFILTER_XT_MATCH_IPVS, POSIX_MQUEUE. Also enable CGROUP_PIDS and the
-CHECKSUM target. Generated with scripts/config + "make olddefconfig" on
-the kernel source, so all dependencies are satisfied; the kernel build's
-'yes "" | make oldconfig' would otherwise drop unmet options silently.
+CHECKSUM target.
+
+pkgrel 2 adds BLK_CGROUP, BLK_DEV_THROTTLING and CFQ_GROUP_IOSCHED: with
+cgroup v1 (needed on 4.14, see README), crun fails without a blkio
+hierarchy ("open /sys/fs/cgroup/blkio/docker/...: No such file or
+directory").
+
+Generated with scripts/config + "make olddefconfig" on the kernel source,
+so all dependencies are satisfied; the kernel build's 'yes "" | make
+oldconfig' would otherwise drop unmet options silently.
 
 Base: pmaports 78e02f370c4e90f53e11fc3d728e3c67fdbaeab6
 ---
 diff --git a/device/archived/linux-samsung-a51/APKBUILD b/device/archived/linux-samsung-a51/APKBUILD
-index 388aacd90c..d302a3b87a 100644
+index 388aacd90c..aeb69a4cd9 100644
 --- a/device/archived/linux-samsung-a51/APKBUILD
 +++ b/device/archived/linux-samsung-a51/APKBUILD
 @@ -5,7 +5,7 @@
@@ -20,7 +27,7 @@ index 388aacd90c..d302a3b87a 100644
  pkgname=linux-samsung-a51
  pkgver=4.14.113
 -pkgrel=0
-+pkgrel=1
++pkgrel=2
  pkgdesc="Samsung Galaxy A51 kernel fork"
  arch="aarch64"
  _carch="arm64"
@@ -29,12 +36,12 @@ index 388aacd90c..d302a3b87a 100644
  sha512sums="
  0a3d794884411d0aca00672c6e7f8c1ba6e028d4e49cfea80cff552679651c5e3bf7e667f59c572fa406e6c704ad683762a7f656366084b0ea7cbc92cc422cdc  linux-samsung-a51-c8dd4c096e0ba7b7cbdb6eb2ea6c7affd006198b.tar.gz
 -bf942d4ed1422cc84225697440ef0a8ccbbff623c3c947aa2870736793d7561786239fdd51aed5a222af8c5f560b8cea46d5d34213512c1378e0c20f55fd4b56  config-samsung-a51.aarch64
-+5a3a31d3698f1b7eb618ced0601aad8016543742a936a21532833c607f23d36ebdcefbfd25b696f187c55545249e61a457fd6baab38b3f540ab5b0f90ecc8524  config-samsung-a51.aarch64
++c5ac0abd7aaee4f02e11f825e782a393e4f0b3fe975fd2b69b6102f39cc595a9f8c513056790c01e6e8bec0ffe73bcc09618830e87eaa723a97b4c4fa9e9cb45  config-samsung-a51.aarch64
  ba1bf397e6ae63ff53aad715940d664fcbd0273ddbd9554c01171133f07627eadab2f174c408ebe4f25b92fcf66f1a3292b9928643e8599e7b1c28decbbed323  0001-SQUASH-HACK-DECON-framebuffer-fixes-for-Linux.patch
  93d43ca0d218729e60bd3256585a13ed6057881654147c2b84cab0423a5f8969c9566367b89226ddd153e7efa8f29878d0b7fc7c438ff02893bac15de1d41418  0001-fbdev-exynos-dpu20-Remove-one-of-samsung-debug-log.patch
  95b1d4d44eac376df3bc4bdb324035dae0c982c5938caaa4c3915aa78429898efd2b53b3e781cccb37b47dd2240bd0ce0b4ccf3c81a92e7c684790c68336d3a2  0001-drivers-soc-cal-if-Prevent-optimization-of-structs-o.patch
 diff --git a/device/archived/linux-samsung-a51/config-samsung-a51.aarch64 b/device/archived/linux-samsung-a51/config-samsung-a51.aarch64
-index e4ad7aeca6..c5ec490673 100644
+index e4ad7aeca6..90e47379ce 100644
 --- a/device/archived/linux-samsung-a51/config-samsung-a51.aarch64
 +++ b/device/archived/linux-samsung-a51/config-samsung-a51.aarch64
 @@ -52,7 +52,8 @@ CONFIG_DEFAULT_HOSTNAME="(none)"
@@ -47,7 +54,15 @@ index e4ad7aeca6..c5ec490673 100644
  CONFIG_CROSS_MEMORY_ATTACH=y
  # CONFIG_FHANDLE is not set
  # CONFIG_USELIB is not set
-@@ -145,12 +146,12 @@ CONFIG_CGROUP_SCHED=y
+@@ -140,17 +141,19 @@ CONFIG_MEMCG=y
+ CONFIG_MEMCG_SWAP=y
+ CONFIG_MEMCG_SWAP_ENABLED=y
+ CONFIG_MEMCG_FORCE_USE_VM_SWAPPINESS=y
+-# CONFIG_BLK_CGROUP is not set
++CONFIG_BLK_CGROUP=y
++# CONFIG_DEBUG_BLK_CGROUP is not set
++CONFIG_CGROUP_WRITEBACK=y
+ CONFIG_CGROUP_SCHED=y
  CONFIG_FAIR_GROUP_SCHED=y
  CONFIG_CFS_BANDWIDTH=y
  CONFIG_RT_GROUP_SCHED=y
@@ -62,7 +77,24 @@ index e4ad7aeca6..c5ec490673 100644
  CONFIG_CGROUP_CPUACCT=y
  # CONFIG_CGROUP_PERF is not set
  CONFIG_CGROUP_BPF=y
-@@ -817,6 +818,7 @@ CONFIG_NETWORK_SECMARK=y
+@@ -332,6 +335,8 @@ CONFIG_BLK_DEV_CRYPT_DUN=y
+ CONFIG_BLK_DEV_CRYPT_DISKCIPHER=y
+ # CONFIG_BLK_DEV_INTEGRITY is not set
+ # CONFIG_BLK_DEV_ZONED is not set
++CONFIG_BLK_DEV_THROTTLING=y
++# CONFIG_BLK_DEV_THROTTLING_LOW is not set
+ # CONFIG_BLK_CMDLINE_PARSER is not set
+ # CONFIG_BLK_WBT is not set
+ CONFIG_BLK_DEBUG_FS=y
+@@ -369,6 +374,7 @@ CONFIG_BLOCK_SUPPORT_STLOG=y
+ CONFIG_IOSCHED_NOOP=y
+ # CONFIG_IOSCHED_DEADLINE is not set
+ CONFIG_IOSCHED_CFQ=y
++CONFIG_CFQ_GROUP_IOSCHED=y
+ CONFIG_DEFAULT_CFQ=y
+ # CONFIG_DEFAULT_NOOP is not set
+ CONFIG_DEFAULT_IOSCHED="cfq"
+@@ -817,6 +823,7 @@ CONFIG_NETWORK_SECMARK=y
  # CONFIG_NETWORK_PHY_TIMESTAMPING is not set
  CONFIG_NETFILTER=y
  CONFIG_NETFILTER_ADVANCED=y
@@ -70,7 +102,7 @@ index e4ad7aeca6..c5ec490673 100644
  
  #
  # Core Netfilter Configuration
-@@ -879,7 +881,7 @@ CONFIG_NETFILTER_XT_CONNMARK=y
+@@ -879,7 +886,7 @@ CONFIG_NETFILTER_XT_CONNMARK=y
  # Xtables targets
  #
  # CONFIG_NETFILTER_XT_TARGET_AUDIT is not set
@@ -79,7 +111,7 @@ index e4ad7aeca6..c5ec490673 100644
  CONFIG_NETFILTER_XT_TARGET_CLASSIFY=y
  CONFIG_NETFILTER_XT_TARGET_CONNMARK=y
  CONFIG_NETFILTER_XT_TARGET_CONNSECMARK=y
-@@ -908,7 +910,7 @@ CONFIG_NETFILTER_XT_TARGET_TCPMSS=y
+@@ -908,7 +915,7 @@ CONFIG_NETFILTER_XT_TARGET_TCPMSS=y
  #
  # Xtables matches
  #
@@ -88,7 +120,7 @@ index e4ad7aeca6..c5ec490673 100644
  CONFIG_NETFILTER_XT_MATCH_BPF=y
  # CONFIG_NETFILTER_XT_MATCH_CGROUP is not set
  # CONFIG_NETFILTER_XT_MATCH_CLUSTER is not set
-@@ -929,6 +931,7 @@ CONFIG_NETFILTER_XT_MATCH_HELPER=y
+@@ -929,6 +936,7 @@ CONFIG_NETFILTER_XT_MATCH_HELPER=y
  CONFIG_NETFILTER_XT_MATCH_HL=y
  # CONFIG_NETFILTER_XT_MATCH_IPCOMP is not set
  CONFIG_NETFILTER_XT_MATCH_IPRANGE=y
@@ -96,7 +128,7 @@ index e4ad7aeca6..c5ec490673 100644
  CONFIG_NETFILTER_XT_MATCH_L2TP=y
  CONFIG_NETFILTER_XT_MATCH_LENGTH=y
  CONFIG_NETFILTER_XT_MATCH_LIMIT=y
-@@ -939,6 +942,7 @@ CONFIG_NETFILTER_XT_MATCH_MARK=y
+@@ -939,6 +947,7 @@ CONFIG_NETFILTER_XT_MATCH_MARK=y
  # CONFIG_NETFILTER_XT_MATCH_OSF is not set
  CONFIG_NETFILTER_XT_MATCH_OWNER=y
  CONFIG_NETFILTER_XT_MATCH_POLICY=y
@@ -104,7 +136,7 @@ index e4ad7aeca6..c5ec490673 100644
  CONFIG_NETFILTER_XT_MATCH_PKTTYPE=y
  CONFIG_NETFILTER_XT_MATCH_QUOTA=y
  CONFIG_NETFILTER_XT_MATCH_QUOTA2=y
-@@ -955,7 +959,47 @@ CONFIG_NETFILTER_XT_MATCH_STRING=y
+@@ -955,7 +964,47 @@ CONFIG_NETFILTER_XT_MATCH_STRING=y
  CONFIG_NETFILTER_XT_MATCH_TIME=y
  CONFIG_NETFILTER_XT_MATCH_U32=y
  # CONFIG_IP_SET is not set
@@ -153,7 +185,7 @@ index e4ad7aeca6..c5ec490673 100644
  
  #
  # IP: Netfilter Configuration
-@@ -1003,7 +1047,8 @@ CONFIG_NF_SOCKET_IPV6=y
+@@ -1003,7 +1052,8 @@ CONFIG_NF_SOCKET_IPV6=y
  # CONFIG_NF_DUP_IPV6 is not set
  CONFIG_NF_REJECT_IPV6=y
  CONFIG_NF_LOG_IPV6=y
@@ -163,7 +195,7 @@ index e4ad7aeca6..c5ec490673 100644
  CONFIG_IP6_NF_IPTABLES=y
  # CONFIG_IP6_NF_MATCH_AH is not set
  # CONFIG_IP6_NF_MATCH_EUI64 is not set
-@@ -1021,7 +1066,10 @@ CONFIG_IP6_NF_TARGET_REJECT=y
+@@ -1021,7 +1071,10 @@ CONFIG_IP6_NF_TARGET_REJECT=y
  CONFIG_IP6_NF_MANGLE=y
  CONFIG_IP6_NF_RAW=y
  # CONFIG_IP6_NF_SECURITY is not set
@@ -175,7 +207,7 @@ index e4ad7aeca6..c5ec490673 100644
  # CONFIG_IP_DCCP is not set
  # CONFIG_IP_SCTP is not set
  # CONFIG_RDS is not set
-@@ -1030,11 +1078,14 @@ CONFIG_IP6_NF_RAW=y
+@@ -1030,11 +1083,14 @@ CONFIG_IP6_NF_RAW=y
  CONFIG_L2TP=y
  # CONFIG_L2TP_DEBUGFS is not set
  # CONFIG_L2TP_V3 is not set
@@ -191,7 +223,7 @@ index e4ad7aeca6..c5ec490673 100644
  # CONFIG_LLC2 is not set
  # CONFIG_IPX is not set
  # CONFIG_ATALK is not set
-@@ -1621,7 +1672,7 @@ CONFIG_NET_CORE=y
+@@ -1621,7 +1677,7 @@ CONFIG_NET_CORE=y
  # CONFIG_NET_POLL_CONTROLLER is not set
  CONFIG_TUN=y
  # CONFIG_TUN_VNET_CROSS_LE is not set
