@@ -10,6 +10,7 @@ pmaports checkouts are downloaded/generated and ignored.
 
 ```
 README.md                this file
+UPSTREAMING.md           plan for contributing the fixes to postmarketOS
 config/                  snapshot of ~/.config/pmbootstrap_v3.cfg
 patches/pmbootstrap/     fixes for the pmbootstrap checkout   (./pmbootstrap)
 patches/pmaports/        fixes for the pmaports checkout      (./cache_git/pmaports)
@@ -574,12 +575,7 @@ running `mount_subpartitions`: it picked `/dev/loop0p2` without direct I/O and
   peeks at MBRs and ext4 magic (`53 ef` at offset 1080); remember sectors are
   4096 bytes.
 
-## Upstreaming candidates
+## Upstreaming
 
-- pmaports: the gzip initfs patch (same as the other "specify gzip-ing initfs"
-  commits). Taking over maintainership would un-archive the device.
-- pmbootstrap: install cross binutils for clang builds.
-- Recovery installer: the 4K-sector patch.
-- Initramfs: no direct I/O when sector sizes differ. It could also detect the
-  mismatch itself (e.g. fall back to `kpartx`).
-- linux-samsung-a51: the Docker options (patch `0004`).
+The plan for sending these fixes to postmarketOS (wiki, merge requests,
+issues) is in [UPSTREAMING.md](UPSTREAMING.md).
