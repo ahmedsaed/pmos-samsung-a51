@@ -33,7 +33,8 @@ scripts/phone/           scripts to copy to and run on the phone
 | SSH key login | works (needed home permission fix), see [After the first boot](#after-the-first-boot) |
 | Wi-Fi | works on <SSID> (DHCP); static IP for the final location documented, see [Wi-Fi](#wi-fi) |
 | Docker | works: containers, published ports, memory/CPU limits, Compose, see [Docker](#docker) |
-| DNS, screen off | not started yet |
+| Battery charge limit | works: stops at 80%, see [Battery charge limit](#battery-charge-limit) |
+| AdGuard Home (secondary DNS) | works in Docker (host network); settings to be synced from the primary |
 
 ## Device facts
 
@@ -268,6 +269,53 @@ does this too.
 If a new kernel doesn't boot: boot TWRP (Vol Up + Power) and write the backup
 back (`adb push boot-backup.img /tmp/` then
 `adb shell dd if=/tmp/boot-backup.img of=/dev/block/by-name/boot`).
+
+### Keep the patched initramfs (pin it)
+
+The phone runs our patched `postmarketos-initramfs` (`3.12.5-r1`); the online
+repo has `3.12.5-r0`. As soon as upstream publishes a newer version,
+`apk upgrade` would replace ours, regenerate `boot.img` with the unpatched
+init, and the next boot fails with "failed to mount subpartitions". Pin it
+once (the kernel is already pinned by the installer):
+
+```sh
+sudo apk add postmarketos-initramfs=3.12.5-r1
+grep initramfs /etc/apk/world      # postmarketos-initramfs=3.12.5-r1
+```
+
+If an upgrade ever needs a newer initramfs, apk refuses instead of breaking
+the boot; then rebase patch `0003` on the new version, build it, and install
+the apk on the phone like a kernel update.
+
+Edge changes daily: run `apk upgrade` on purpose, read the output, and reboot
+while the phone is within reach.
+
+### Battery charge limit
+
+A phone on a charger 24/7 wears its battery at 100%. Samsung's battery driver
+has the One UI "Protect battery" switch: writing N (1-99) to
+`/sys/class/power_supply/battery/batt_full_capacity` stops charging at N% and
+resumes at N-2%. It only turns charging off (`SEC_BAT_CHG_MODE_CHARGING_OFF`);
+the phone keeps running from the charger. The value resets at boot, so set it
+from OpenRC's `local` service (already in the default runlevel):
+
+```sh
+# one command per line: a multi-line paste after a sudo password prompt gets swallowed
+printf '#!/bin/sh\n# Stop charging at 80%%, resume at 78%% (Samsung "Protect battery")\necho 80 > /sys/class/power_supply/battery/batt_full_capacity\n' | sudo tee /etc/local.d/battery-limit.start
+sudo sh -c 'chmod +x /etc/local.d/battery-limit.start && /etc/local.d/battery-limit.start'
+```
+
+Check a few seconds later (the driver applies it on its next monitor run, so
+reading `status` immediately can still say `Charging`):
+
+```sh
+cd /sys/class/power_supply/battery; cat batt_full_capacity status capacity
+dmesg | grep "stop charging"     # sec_bat_check_full_capacity : stop charging(95, 80)
+```
+
+Above the limit it reports `Not charging` with ~0 mA into the battery and
+drifts down slowly; from then on it holds 78-80%. (`store_mode` also exists and
+holds 60-70%, but it can't be switched off without a reboot.)
 
 ## Docker
 
