@@ -1,0 +1,24 @@
+From: ahmedsaed <ahmedsaed2652003@gmail.com>
+Subject: [PATCH] build: install cross binutils when building with clang
+
+Downstream kernels such as linux-samsung-a51 build with clang but pass
+-no-integrated-as, so they need the GNU cross assembler. init_compiler()
+only installed "clang" for clang builds, so the kernel's cc-option checks
+failed with "-fstack-protector-strong not supported by compiler".
+
+Base: pmbootstrap ff954a63c7a5ead5045150f5a79f035259512df2
+---
+diff --git a/pmb/build/init.py b/pmb/build/init.py
+index 5316e1e..d9d96f2 100644
+--- a/pmb/build/init.py
++++ b/pmb/build/init.py
+@@ -114,7 +114,8 @@ def init_compiler(context: Context, depends: list[str], cross: CrossCompile, arc
+     elif "gcc6" in depends:
+         cross_pkgs += ["gcc6-" + arch_str]
+     elif "clang" in depends or "clang-dev" in depends:
+-        cross_pkgs += ["clang"]
++        # Kernels built with -no-integrated-as need the cross binutils
++        cross_pkgs += ["clang", "binutils-" + arch_str]
+     else:
+         cross_pkgs += ["gcc-" + arch_str, "g++-" + arch_str]
+     if cross == CrossCompile.CROSSDIRECT:

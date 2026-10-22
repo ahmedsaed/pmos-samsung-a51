@@ -1,0 +1,45 @@
+From: ahmedsaed <ahmedsaed2652003@gmail.com>
+Subject: [PATCH] samsung-a51: specify gzip-ing initfs
+
+The default initfs compression became zstd, which the 4.14 downstream
+kernel can't decompress (no CONFIG_RD_ZSTD). The kernel then panics with
+"VFS: Unable to mount root fs on unknown-block(1,0)". The device was
+archived before the "specify gzip-ing initfs" sweep (pmaports#4799), so
+it was missed.
+
+Base: pmaports 78e02f370c4e90f53e11fc3d728e3c67fdbaeab6
+---
+diff --git a/device/archived/device-samsung-a51/APKBUILD b/device/archived/device-samsung-a51/APKBUILD
+index b82ae16172..9e89186c68 100644
+--- a/device/archived/device-samsung-a51/APKBUILD
++++ b/device/archived/device-samsung-a51/APKBUILD
+@@ -5,7 +5,7 @@ maintainer=""
+ pkgname=device-samsung-a51
+ pkgdesc="Samsung Galaxy A51"
+ pkgver=5
+-pkgrel=0
++pkgrel=1
+ url="https://postmarketos.org"
+ license="MIT"
+ arch="aarch64"
+@@ -38,7 +38,7 @@ package() {
+ }
+ 
+ sha512sums="
+-526e27968c4b46a02c9a9cf7b2bb4170c3391614000bff7ac273ca395f62961906f50975ba649b230880b1e2ef9901dad3fee94dcb1396e806894d4e2c78c5c3  deviceinfo
++a1645eae1e79b10f8c9aac5cba5181cd2aa575492d92d57dc23f08980b588a1729f6054ffcce0e9b6b581c5f6ebe6144bb8b4ed17c1f9e085c0aa33e4e21dc53  deviceinfo
+ cfeb36f1157fa7413c046d72fd2232956cb4056b30124ac39bae6fdc9f0b49cabc2b6d4b1d4ef94c4191c93e92a770fc17b81b5e02c0dd618efbe95a3da4f7b5  kernel-cmdline.conf
+ 10dc120045062a47b11ab4762dcb4425b2a521b2bcede4e4d3b691f9f2cf2ced77bdff059992ff55cd11af59663802ecb8e750ca02ee70cfa8950b9a090b5dfb  NetworkManager-conf.d-swlan0-p2p0-unmanaged.conf
+ "
+diff --git a/device/archived/device-samsung-a51/deviceinfo b/device/archived/device-samsung-a51/deviceinfo
+index 8e3d7b91ad..4fb578d4ba 100644
+--- a/device/archived/device-samsung-a51/deviceinfo
++++ b/device/archived/device-samsung-a51/deviceinfo
+@@ -26,6 +26,7 @@ deviceinfo_flash_offset_kernel="0x00008000"
+ deviceinfo_flash_offset_ramdisk="0x01000000"
+ deviceinfo_flash_offset_second="0xf0000000"
+ deviceinfo_flash_offset_tags="0x00000100"
++deviceinfo_initfs_compression="gzip"
+ deviceinfo_flash_heimdall_partition_kernel="boot"
+ deviceinfo_flash_heimdall_partition_rootfs="super"
+ 

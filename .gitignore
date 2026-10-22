@@ -1,0 +1,9 @@
+# This directory is also pmbootstrap's work dir. Track only our own files;
+# everything pmbootstrap downloads or builds (chroots, caches, packages, the
+# pmbootstrap and pmaports checkouts) stays out of git.
+/*
+!/.gitignore
+!/README.md
+!/patches/
+!/scripts/
+!/config/
