@@ -1,0 +1,106 @@
+From: ahmedsaed <ahmedsaed2652003@gmail.com>
+Subject: [PATCH] postmarketos-android-recovery-installer: convert 4K-sector
+ subpartition table to 512-byte units
+
+On storage with 4096-byte logical sectors (Samsung A51 UFS), parted on the
+install partition writes the subpartition MBR in 4K units. The initramfs
+maps subpartitions with "losetup -P", which reads them in 512-byte units,
+and the downstream 4.14 kernel ignores "losetup --sector-size". Result:
+"ERROR: failed to mount subpartitions!".
+
+After partitioning and kpartx, scale the two MBR entries to 512-byte units
+(same byte offsets). Partitioning through a 512-byte loop device instead
+doesn't work: TWRP's SELinux policy denies loop devices reading block
+devices (avc: denied { read } comm="loop1" tclass=blk_file).
+
+Base: pmaports 78e02f370c4e90f53e11fc3d728e3c67fdbaeab6
+---
+diff --git a/main/postmarketos-android-recovery-installer/0001-convert-4k-sector-subpartition-table-to-512-byte-units.patch b/main/postmarketos-android-recovery-installer/0001-convert-4k-sector-subpartition-table-to-512-byte-units.patch
+new file mode 100644
+index 0000000000..360967920e
+--- /dev/null
++++ b/main/postmarketos-android-recovery-installer/0001-convert-4k-sector-subpartition-table-to-512-byte-units.patch
+@@ -0,0 +1,54 @@
++--- a/pmos_install_functions
+++++ b/pmos_install_functions
++@@ -90,10 +90,51 @@
++ 	partprobe
++ 	if [ "$INSTALL_PARTITION" != "external_sd" ]; then
++ 		kpartx -afs "$INSTALL_DEVICE"
+++		convert_table_to_512_byte_units "$INSTALL_DEVICE"
++ 	fi
++ 	set_subpartitions
++ }
++ 
+++# $1: device
+++# $2: byte offset
+++read_le32() {
+++	od -A n -t u4 -j "$2" -N 4 "$1" | tr -d ' '
+++}
+++
+++# $1: device
+++# $2: byte offset
+++# $3: value
+++write_le32() {
+++	printf "$(printf '\\%03o\\%03o\\%03o\\%03o' $(($3 & 255)) \
+++		$((($3 >> 8) & 255)) $((($3 >> 16) & 255)) $((($3 >> 24) & 255)))" |
+++		dd of="$1" bs=1 seek="$2" count=4 conv=notrunc 2>/dev/null
+++}
+++
+++# The initramfs maps these subpartitions with "losetup -P", which reads the
+++# MBR in 512-byte units. On storage with bigger logical sectors (e.g. 4K UFS)
+++# parted writes it in device sectors, so scale the entries to 512-byte units.
+++# The byte offsets stay the same, so the kpartx mappings and filesystems are
+++# unaffected. (Partitioning through a loop device doesn't work here: TWRP's
+++# SELinux policy denies loop devices access to block devices.)
+++# $1: device with the partition table
+++convert_table_to_512_byte_units() {
+++	local sector_size factor i entry start size
+++	sector_size="$(blockdev --getss "$1")"
+++	[ "$sector_size" -gt 512 ] || return 0
+++	factor=$((sector_size / 512))
+++	echo "$1 has $sector_size-byte sectors, converting its MBR to 512-byte units"
+++	for i in 0 1; do
+++		entry=$((446 + 16 * i))
+++		start="$(read_le32 "$1" $((entry + 8)))"
+++		size="$(read_le32 "$1" $((entry + 12)))"
+++		write_le32 "$1" $((entry + 8)) $((start * factor))
+++		write_le32 "$1" $((entry + 12)) $((size * factor))
+++		echo "partition $((i + 1)): start $start -> $((start * factor))," \
+++			"size $size -> $((size * factor))"
+++	done
+++	sync
+++}
+++
++ set_subpartitions() {
++ 	export PMOS_BOOT
++ 	PMOS_BOOT=/dev/mapper/"$(basename "$INSTALL_DEVICE")"p1
+diff --git a/main/postmarketos-android-recovery-installer/APKBUILD b/main/postmarketos-android-recovery-installer/APKBUILD
+index 63ea075d8f..34fe168989 100644
+--- a/main/postmarketos-android-recovery-installer/APKBUILD
++++ b/main/postmarketos-android-recovery-installer/APKBUILD
+@@ -1,14 +1,16 @@
+ maintainer="Oliver Smith <ollieparanoid@postmarketos.org>"
+ pkgname=postmarketos-android-recovery-installer
+ pkgver=1.0.7
+-pkgrel=1
++pkgrel=3
+ pkgdesc="TWRP compatible postmarketOS installer script"
+ arch="all"
+ url="https://postmarketos.org"
+ license="GPL-3.0-or-later"
+ # multipath-tools: kpartx
+ depends="busybox-extras lddtree cryptsetup multipath-tools device-mapper parted util-linux zip e2fsprogs tar"
+-source="https://gitlab.com/postmarketos/postmarketos-android-recovery-installer/-/archive/$pkgver/postmarketos-android-recovery-installer-$pkgver.tar.gz"
++source="https://gitlab.com/postmarketos/postmarketos-android-recovery-installer/-/archive/$pkgver/postmarketos-android-recovery-installer-$pkgver.tar.gz
++	0001-convert-4k-sector-subpartition-table-to-512-byte-units.patch
++	"
+ options="!check" # No tests
+ 
+ build() {
+@@ -31,4 +33,5 @@ package() {
+ }
+ sha512sums="
+ 22481d26d78388eb67278a1ddd699abc3ca1c5df3c9f1d386d3fb95076e50d9209c8388d5700a6da5e476ac96023d55624c27b427767ee65775c24369dc11313  postmarketos-android-recovery-installer-1.0.7.tar.gz
++8e4f79a60652ac61c6569afcd50a1a0889fd59e48cc57a52f479aaa1c71ead6039ddc86bc02003fb8ae9c1ea94e301968f6f3f2ac1ec8669d41dd827bb471428  0001-convert-4k-sector-subpartition-table-to-512-byte-units.patch
+ "

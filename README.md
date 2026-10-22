@@ -23,7 +23,7 @@ scripts/seed-distfiles.sh pre-download/verify sources that fail to fetch
 |---|---|
 | Build packages and recovery zip | works with the patches below |
 | Kernel boots | works (gzip initramfs) |
-| Initramfs finds the root partition | fix written (installer patch), **not yet tested on the phone**, see [Issue 8](#8-initramfs-cant-find-the-subpartitions-4k-sectors) |
+| Initramfs finds the root partition | fix written (installer patch pkgrel 3), tested in the TWRP installer chroot on a copy of the MBR, **not yet tested by a full install**, see [Issue 8](#8-initramfs-cant-find-the-subpartitions-4k-sectors) |
 | SSH, Wi-Fi, DNS, screen off | not started yet |
 
 ## Device facts
@@ -251,18 +251,30 @@ The February installs used the identical 4K-unit table and booted, so the older
 initramfs presumably mapped subpartitions differently (likely `kpartx`, which
 honours the real sector size). This is an inference, not verified.
 
-**Fix:** `patches/pmaports/0002-recovery-installer-partition-4k-sector-devices-in-512-byte-units.patch`.
+**Fix:** `patches/pmaports/0002-recovery-installer-convert-4k-sector-table-to-512-byte-units.patch`.
 It adds a patch to the `postmarketos-android-recovery-installer` package
-(pkgrel 2) that changes `partition_install_device()`: when the install
-partition's logical sector size (`blockdev --getss`) isn't 512, it attaches a
-loop device to it (which is always 512-byte on this kernel) and runs `parted`
-and `kpartx` on that. The table then uses 512-byte units with the same byte
-offsets, so the initramfs' default `losetup -P` finds `pmOS_boot`/`pmOS_root`.
-The installer log (`/tmp/postmarketos/pmos.log`) shows
-`... has 4096-byte sectors, partitioning it through /dev/loopN`.
+(pkgrel 3). The installer still partitions with `parted` + `kpartx` directly
+on the install partition (4K units, as before). Then, if
+`blockdev --getss` reports more than 512, `convert_table_to_512_byte_units()`
+multiplies both MBR entries' start and size by `sector_size / 512` in place
+(`od` to read, `printf | dd conv=notrunc` to write). The byte offsets don't
+change, so the kpartx mappings and the filesystems are unaffected, and the
+initramfs' default `losetup -P` finds `pmOS_boot`/`pmOS_root`. The installer log
+(`/tmp/postmarketos/pmos.log`) shows the conversion:
 
-Limitation: `pmos_setpw` (full-disk encryption only) still derives the mapper
-names from `$INSTALL_DEVICE`; FDE isn't used here.
+```
+/dev/block/sda32 has 4096-byte sectors, converting its MBR to 512-byte units
+partition 1: start 2048 -> 16384, size 60416 -> 483328
+partition 2: start 62464 -> 499712, size 29110272 -> 232882176
+```
+
+**Failed first attempt (pkgrel 2):** partition through a 512-byte loop device
+attached to `sda32`. In TWRP every loop read/write returned I/O errors:
+TWRP's SELinux is enforcing and denies the kernel's loop thread access to block
+devices (`avc: denied { read } for comm="loop1" ... tclass=blk_file
+permissive=0`). This is also why read-only loop mounts of `sda32` failed in
+TWRP with "Invalid argument". The pmOS initramfs has no SELinux, so loops work
+there.
 
 **One-off workaround for an existing install:** rewrite only the MBR of
 `sda32` in 512-byte units with the same byte offsets (p1 start 16384,
