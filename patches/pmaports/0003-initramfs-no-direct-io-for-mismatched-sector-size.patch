@@ -1,0 +1,74 @@
+From: ahmedsaed <ahmedsaed2652003@gmail.com>
+Subject: [PATCH] postmarketos-initramfs: don't use direct I/O for subpartition
+ loops with mismatched sector size
+
+Since subpartitions are mapped with "losetup -P --direct-io=on" (86bdb82116,
+previously kpartx), devices with 4096-byte logical sectors (Samsung A51 UFS)
+whose downstream kernel ignores --sector-size get a 512-byte loop doing
+direct I/O. The UFS driver rejects those requests ("exynos-ufs: Invalid
+bio", "I/O error, dev loop0"), and mounting the root partition fails with
+"Invalid argument".
+
+Only enable direct I/O when the partition's sector size matches the loop's
+(512 or deviceinfo_rootfs_image_sector_size); otherwise use buffered I/O.
+
+Base: pmaports 78e02f370c4e90f53e11fc3d728e3c67fdbaeab6
+---
+diff --git a/main/postmarketos-initramfs/APKBUILD b/main/postmarketos-initramfs/APKBUILD
+index acd0127432..eecc86be46 100644
+--- a/main/postmarketos-initramfs/APKBUILD
++++ b/main/postmarketos-initramfs/APKBUILD
+@@ -2,7 +2,7 @@
+ maintainer="Casey Connolly <kcxt@postmarketos.org>"
+ pkgname=postmarketos-initramfs
+ pkgver=3.12.5
+-pkgrel=0
++pkgrel=1
+ pkgdesc="Base files for the postmarketOS initramfs / initramfs-extra"
+ url="https://postmarketos.org"
+ provides="postmarketos-ramdisk=$pkgver-r$pkgrel"
+@@ -118,7 +118,7 @@ ace852ba267b3408998970df6042603c8bec1d033066d1c30ed65f1be955fee8644b57882898f102
+ 69852928464f01757e2f473bd2c2e7ecb4132ecf3e26bdec95932e928dfe9042f59316e0a509fd38bcda88e24dd94bf33e8a88118b5adbec7023d1c13da12f59  00-initramfs-base.files
+ 669240c0c6b84ff68ea7696b3ffd39c209c7c6d52233f67a2515ac423e16c3daa7841d8451946b14dc95e1d18ff31cc35c4a22efb8a36caceb48aada5d4ee5ea  00-initramfs-extra-base.files
+ b74fb087792165ac32bb2b5c6cdd8456891260de44000e08c7c4d25fe13ad017041ca14094c33392d1140ba32a9eed6cbc7eb6697e297df3575c33554f3f3eb3  init.sh
+-84a575e2ac6cdf67b0f5f52f660f1297327b884d0cb80387a92c66d603a462067123abbf522c4c729fbc230d614faae19bec1677863146a22cb8083d4c9250a2  init_functions.sh
++c196c295271d8829d28314b94dfa22865f637989743800b913c480cc2c5f950a2bcbafd09b51ac8a1f07f4bd66d57a3dfbddb9f611a84ac50b389586f02b2c09  init_functions.sh
+ 7aa82d5e2907470d667612643d98371dff27b2650051f8c568ab43d1b97677362c3e6fbd442474086d681ea7c0cfbcaf269d3eef2d2dc3ff4ebf17c786b82148  init_2nd.sh
+ 0c817341047df07c2b74d5f992b09d449365e0f7ed3d06d67dd470fde2c7429de8900ccc12895d133873f0d1e226d9fd3aae8127df802e882e1ddc5baa240711  init_functions_2nd.sh
+ 675e7d5bee39b2df7d322117f8dcaccc274d61beaf4d50ead19bbf2109446d64b1c0aa0c5b4f9846eb6c1c403418f28f6364eff4537ba41120fbfcbc484b7da7  mdev.conf
+diff --git a/main/postmarketos-initramfs/init_functions.sh b/main/postmarketos-initramfs/init_functions.sh
+index 93fa7ad95b..1190c5d343 100644
+--- a/main/postmarketos-initramfs/init_functions.sh
++++ b/main/postmarketos-initramfs/init_functions.sh
+@@ -366,7 +366,8 @@ mount_subpartitions() {
+ 		[ -e "$x" ] && android_parts="$android_parts $x"
+ 	done
+ 
+-	local losetup_args="--show -Pf --direct-io=on"
++	local losetup_args="--show -Pf"
++	local loop_sector_size="${deviceinfo_rootfs_image_sector_size:-512}"
+ 	if [ -n "$deviceinfo_rootfs_image_sector_size" ]; then
+ 		losetup_args="$losetup_args --sector-size $deviceinfo_rootfs_image_sector_size"
+ 	fi
+@@ -402,8 +403,20 @@ mount_subpartitions() {
+ 			if [ "$part_count" -eq 2 ]; then
+ 				echo "Mount subpartitions of $partition"
+ 				SUBPARTITION_DEV="$partition"
++				# Direct I/O passes the loop's sector size through to the
++				# backing device. If they differ (e.g. 512-byte loop on 4K
++				# UFS, on kernels that ignore --sector-size), the storage
++				# driver rejects the requests, so use buffered I/O instead.
++				local direct_io="--direct-io=on"
++				local part_sector_size
++				part_sector_size="$(blockdev --getss "$partition" 2>/dev/null)"
++				if [ "$part_sector_size" != "$loop_sector_size" ]; then
++					echo "$partition has ${part_sector_size:-unknown}-byte sectors," \
++						"loop has $loop_sector_size: not using direct I/O"
++					direct_io=""
++				fi
+ 				# shellcheck disable=SC2086
+-				SUBPARTITION_LOOP="$(losetup $losetup_args "$partition")"
++				SUBPARTITION_LOOP="$(losetup $losetup_args $direct_io "$partition")"
+ 				if [ -z "$SUBPARTITION_LOOP" ]; then
+ 					echo "WARNING: failed to create loop device for $partition"
+ 					SUBPARTITION_DEV=""

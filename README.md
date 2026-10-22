@@ -23,7 +23,8 @@ scripts/seed-distfiles.sh pre-download/verify sources that fail to fetch
 |---|---|
 | Build packages and recovery zip | works with the patches below |
 | Kernel boots | works (gzip initramfs) |
-| Initramfs finds the root partition | fix written (installer patch pkgrel 3), tested in the TWRP installer chroot on a copy of the MBR, **not yet tested by a full install**, see [Issue 8](#8-initramfs-cant-find-the-subpartitions-4k-sectors) |
+| Initramfs finds the subpartitions | works (installer patch, verified by a full install), see [Issue 8](#8-initramfs-cant-find-the-subpartitions-4k-sectors) |
+| Initramfs mounts the root partition | fix written (initramfs patch), verified live in the debug shell, **not yet tested by a full install**, see [Issue 9](#9-initramfs-cant-mount-the-root-partition-direct-io-on-4k-storage) |
 | SSH, Wi-Fi, DNS, screen off | not started yet |
 
 ## Device facts
@@ -66,11 +67,17 @@ scripts/seed-distfiles.sh "/run/media/ahmed/Projects/pmos builds/console-pmos-sa
 # 3. keep sudo alive during the long kernel build (optional, see Issue 4)
 sudo -v && (while true; do sudo -n -v; sleep 60; done) &
 
-# 4. build the TWRP zip, installing onto userdata
+# 4. build patched packages first: building them during the zip step hits a
+#    pmbootstrap bug (buildroot zap drops the rootfs mount, then
+#    "tar: /mnt/rootfs_samsung-a51: Cannot open"). Re-running also works.
+pmbootstrap build postmarketos-initramfs
+pmbootstrap build postmarketos-android-recovery-installer --arch aarch64
+
+# 5. build the TWRP zip, installing onto userdata
 pmbootstrap install --android-recovery-zip --recovery-install-partition=userdata
 kill %1
 
-# 5. phone: TWRP > Advanced > ADB Sideload (leave wipe options unticked)
+# 6. phone: TWRP > Advanced > ADB Sideload (leave wipe options unticked)
 adb -s <SERIAL> sideload \
   chroot_buildroot_aarch64/var/lib/postmarketos-android-recovery-installer/pmos-samsung-a51.zip
 ```
@@ -247,9 +254,17 @@ Cause:
 - The filesystems themselves are fine: mapped by byte offset
   (`losetup -o $((62464*4096))`), `pmOS_root` and `pmOS_boot` both mount.
 
-The February installs used the identical 4K-unit table and booted, so the older
-initramfs presumably mapped subpartitions differently (likely `kpartx`, which
-honours the real sector size). This is an inference, not verified.
+Why the February installs (same 4K-unit table) booted: their initramfs mapped
+subpartitions with **`kpartx`** (device-mapper), which honours the disk's real
+sector size and does no direct I/O. Verified by extracting the initramfs from
+the old zip. pmaports switched to loop devices in `86bdb82116` (2026-02-05,
+"use loop device for subpartitions", MR 7932), noting "There *should* be no
+impact to existing installs"; 4K-sector storage on an old kernel wasn't
+covered. That one change causes both this issue and [Issue 9](#9-initramfs-cant-mount-the-root-partition-direct-io-on-4k-storage).
+
+We chose to adapt the new loop logic (option B) instead of reverting the
+initramfs to kpartx (option A): two small, generic patches versus reverting a
+refactor that later commits build on. Option A remains the fallback.
 
 **Fix:** `patches/pmaports/0002-recovery-installer-convert-4k-sector-table-to-512-byte-units.patch`.
 It adds a patch to the `postmarketos-android-recovery-installer` package
@@ -280,6 +295,39 @@ there.
 `sda32` in 512-byte units with the same byte offsets (p1 start 16384,
 p2 start 499712). Filesystems are untouched.
 
+### 9. Initramfs can't mount the root partition (direct I/O on 4K storage)
+
+With the 512-unit table the initramfs finds `/dev/loop0p2`, then:
+
+```
+Mount root partition (/dev/loop0p2) to /sysroot (read-write) with options
+mount: mounting /dev/loop0p2 on /sysroot failed: Invalid argument
+ERROR: unable to mount root partition!
+```
+
+`dmesg` shows the storage driver rejecting the loop's requests:
+
+```
+exynos-ufs 13520000.ufs: Invalid bio
+print_req_error: I/O error, dev loop0, sector 499712
+```
+
+The initramfs attaches the loop with `--direct-io=on`. Direct I/O passes the
+loop's 512-byte-granular requests straight to the UFS, which only accepts
+4 KiB-aligned I/O. Live test in the debug shell on a fresh loop device:
+without direct I/O ext4 mounts fine; with `--direct-io=on` it fails with
+`unable to read superblock`. (Switching an existing loop to
+`--direct-io=off` was not enough.)
+
+**Fix:** `patches/pmaports/0003-initramfs-no-direct-io-for-mismatched-sector-size.patch`
+(`postmarketos-initramfs` pkgrel 1). In `mount_subpartitions()`, direct I/O is
+only used when `blockdev --getss` of the partition equals the loop's sector size
+(512, or `deviceinfo_rootfs_image_sector_size`). Otherwise the initramfs log
+shows `/dev/sda32 has 4096-byte sectors, loop has 512: not using direct I/O`.
+Verified by copying the patched `init_functions.sh` into the debug shell and
+running `mount_subpartitions`: it picked `/dev/loop0p2` without direct I/O and
+`pmOS_root` mounted.
+
 ## Debugging techniques that worked
 
 - **Build logs:** `pmbootstrap log`, or the text above the `^^^` line in
@@ -307,5 +355,6 @@ p2 start 499712). Filesystems are untouched.
 - pmaports: the gzip initfs patch (same as the other "specify gzip-ing initfs"
   commits). Taking over maintainership would un-archive the device.
 - pmbootstrap: install cross binutils for clang builds.
-- Recovery installer: the 4K-sector patch. The initramfs could also detect the
+- Recovery installer: the 4K-sector patch.
+- Initramfs: no direct I/O when sector sizes differ. It could also detect the
   mismatch itself (e.g. fall back to `kpartx`).
