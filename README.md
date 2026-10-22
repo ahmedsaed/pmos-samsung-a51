@@ -24,8 +24,9 @@ scripts/seed-distfiles.sh pre-download/verify sources that fail to fetch
 | Build packages and recovery zip | works with the patches below |
 | Kernel boots | works (gzip initramfs) |
 | Initramfs finds the subpartitions | works (installer patch, verified by a full install), see [Issue 8](#8-initramfs-cant-find-the-subpartitions-4k-sectors) |
-| Initramfs mounts the root partition | fix written (initramfs patch), verified live in the debug shell, **not yet tested by a full install**, see [Issue 9](#9-initramfs-cant-mount-the-root-partition-direct-io-on-4k-storage) |
-| SSH, Wi-Fi, DNS, screen off | not started yet |
+| Initramfs mounts the root partition | works (initramfs patch), see [Issue 9](#9-initramfs-cant-mount-the-root-partition-direct-io-on-4k-storage) |
+| System boots, SSH | works: Dropbear answers on `172.16.42.1:22` ~40 s after boot |
+| SSH keys, Wi-Fi, DNS, screen off | not started yet |
 
 ## Device facts
 
