@@ -35,6 +35,7 @@ scripts/phone/           scripts to copy to and run on the phone
 | Docker | works: containers, published ports, memory/CPU limits, Compose, see [Docker](#docker) |
 | Battery charge limit | works: stops at 80%, see [Battery charge limit](#battery-charge-limit) |
 | AdGuard Home (secondary DNS) | works in Docker (host network); settings to be synced from the primary |
+| Tailscale, Beszel agent | work in Docker (Tailscale with legacy iptables); idle load average reads ~17, see [Load average](#load-average-is-17-when-idle-harmless) |
 
 ## Device facts
 
@@ -378,6 +379,34 @@ Problems found, in the order they appeared:
 
 The pmOS package `postmarketos-config-nftables-docker` gets pulled in with
 Docker; it only adds rules to pmOS's nftables firewall and is harmless here.
+
+## Load average is ~17 when idle (harmless)
+
+Monitoring (Beszel, `uptime`) shows a load average around 17 while the CPU is
+~99% idle. Linux counts tasks in uninterruptible sleep (`D` state) as load even
+when they use no CPU, and 17 Samsung kernel threads sit in `D` state
+permanently, waiting for work (measured 2026-10-23):
+
+| Threads | Count | What |
+|---|---|---|
+| `tz_worker_thread` | 8 | TrustZone (TEEgris secure OS) workers, one per core |
+| `tz_iwsock`, `ree_time` | 2 | TrustZone messaging and clock sync |
+| `simpleinteractive` | 6 | Samsung CPU frequency governor helpers |
+| `scsi_srpmb_worker` | 1 | UFS secure storage (RPMB) worker |
+
+Newer kernels have a way to wait without counting as load (`TASK_IDLE`);
+these drivers don't use it, and Android never looks at the load average.
+Treat ~17 as this phone's zero: in Beszel, set the system's load average
+alert to ~24 (or turn it off and alert on CPU usage, which is accurate). A
+kernel patch could change how the drivers wait, but it isn't worth the
+rebuild for a cosmetic number.
+
+To list them:
+
+```sh
+cat /proc/loadavg
+for p in /proc/[0-9]*; do [ "$(awk '{print $3}' $p/stat 2>/dev/null)" = D ] && echo "$(basename $p) $(cat $p/comm)"; done
+```
 
 ## Issues found and how they were fixed
 
