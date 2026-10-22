@@ -275,8 +275,9 @@ back (`adb push boot-backup.img /tmp/` then
 The phone runs our patched `postmarketos-initramfs` (`3.12.5-r1`); the online
 repo has `3.12.5-r0`. As soon as upstream publishes a newer version,
 `apk upgrade` would replace ours, regenerate `boot.img` with the unpatched
-init, and the next boot fails with "failed to mount subpartitions". Pin it
-once (the kernel is already pinned by the installer):
+init, and the next boot fails with "unable to mount root partition!" (the
+partition table is already converted, so only the direct I/O fix is lost).
+Pin it once (the kernel is already pinned by the installer):
 
 ```sh
 sudo apk add postmarketos-initramfs=3.12.5-r1
