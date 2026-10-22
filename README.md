@@ -68,7 +68,7 @@ scripts/apply-patches.sh
 scripts/seed-distfiles.sh "/run/media/ahmed/Projects/pmos builds/console-pmos-samsung-a51.zip"
 
 # 3. keep sudo alive during the long kernel build (optional, see Issue 4)
-sudo -v && (while true; do sudo -n -v; sleep 60; done) &
+sudo -v; while true; do sudo -n -v; sleep 60; done &   # only the loop goes to the background
 
 # 4. build patched packages first: building them during the zip step hits a
 #    pmbootstrap bug (buildroot zap drops the rootfs mount, then
