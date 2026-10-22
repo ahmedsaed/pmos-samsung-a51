@@ -26,7 +26,9 @@ scripts/seed-distfiles.sh pre-download/verify sources that fail to fetch
 | Initramfs finds the subpartitions | works (installer patch, verified by a full install), see [Issue 8](#8-initramfs-cant-find-the-subpartitions-4k-sectors) |
 | Initramfs mounts the root partition | works (initramfs patch), see [Issue 9](#9-initramfs-cant-mount-the-root-partition-direct-io-on-4k-storage) |
 | System boots, SSH | works: Dropbear answers on `172.16.42.1:22` ~40 s after boot |
-| SSH keys, Wi-Fi, DNS, screen off | not started yet |
+| SSH key login | works (needed home permission fix), see [After the first boot](#after-the-first-boot) |
+| Wi-Fi | works on <SSID> (DHCP); static IP for the final location documented, see [Wi-Fi](#wi-fi) |
+| DNS, screen off | not started yet |
 
 ## Device facts
 
@@ -105,6 +107,99 @@ again.
 
 The recovery zip **excludes `/home`**, so the SSH keys copied by pmbootstrap
 don't end up on the phone. Use password login first, then `ssh-copy-id`.
+
+## After the first boot
+
+### First login over USB
+
+The phone is `172.16.42.1` on the USB network (`enp10s0u2` on the PC). If the
+PC doesn't get a `172.16.42.x` address from the phone's DHCP within a minute,
+set one (runtime only, gone after a replug):
+
+```sh
+nmcli device modify enp10s0u2 ipv4.method manual ipv4.addresses 172.16.42.2/24
+ssh ahmed@172.16.42.1                      # password from pmbootstrap install
+ssh-copy-id -i ~/.ssh/id_ed25519.pub ahmed@172.16.42.1
+```
+
+**Key login kept asking for the password:** the recovery installer creates
+`/home/ahmed` itself, with ownership/permissions Dropbear rejects (it silently
+ignores `authorized_keys` if the home or `~/.ssh` is writable by others). The
+client log showed `id_ed25519` offered and refused. Fixed on the phone with:
+
+```sh
+sudo chown -R ahmed:ahmed ~
+chmod 755 ~; chmod 700 ~/.ssh; chmod 600 ~/.ssh/authorized_keys
+```
+
+### Wi-Fi
+
+Wi-Fi (Samsung `wlbt`/mx140 driver) works with the firmware package. The driver
+finds no stored MAC (`/efs/wifi/.mac.info`, `mac.txt` missing) and uses a
+random one, so pin a stable MAC per connection. Wi-Fi power saving causes
+latency spikes (measured 1.7 ms to 152 ms ping to the phone), so turn it off.
+
+`sudo` asks for the user password; run these in an SSH session yourself so the
+Wi-Fi password doesn't end up in logs. Prefer the USB session (`172.16.42.1`)
+when changing a connection, since the Wi-Fi IP may change.
+
+**Temporary location (DHCP)**, tested 2026-10-22 on <SSID> (5 GHz):
+
+```sh
+sudo nmcli dev wifi connect <SSID> password 'WIFI_PASSWORD' name home-wifi
+sudo nmcli con modify home-wifi \
+  802-11-wireless.cloned-mac-address stable \
+  802-11-wireless.powersave 2
+sudo nmcli con up home-wifi
+```
+
+**Final location (static IP).** Find the new network's subnet, router and DHCP
+range first (router admin page, or `ip route` on any machine there). Pick an
+address outside the DHCP range, or reserve it in the router. The examples
+assume `192.168.0.0/24` with the router at `192.168.0.1`; adjust:
+
+```sh
+# 1. connect (creates the profile and saves the password)
+sudo nmcli dev wifi connect 'NEW_SSID' password 'WIFI_PASSWORD' name server-wifi
+
+# 2. static IP, stable MAC, no power saving, always reconnect
+sudo nmcli con modify server-wifi \
+  ipv4.method manual \
+  ipv4.addresses 192.168.0.53/24 \
+  ipv4.gateway 192.168.0.1 \
+  ipv4.dns "192.168.0.1 1.1.1.1" \
+  ipv6.method auto \
+  802-11-wireless.cloned-mac-address stable \
+  802-11-wireless.powersave 2 \
+  connection.autoconnect yes \
+  connection.autoconnect-priority 10
+sudo nmcli con up server-wifi
+
+# 3. optional: stop the phone from joining the old network there
+sudo nmcli con delete home-wifi
+```
+
+Check it:
+
+```sh
+nmcli -f NAME,DEVICE,STATE con show --active
+ip -br a show wlan0; ip route           # static address, default via router
+ping -c3 1.1.1.1; ping -c3 alpinelinux.org
+iwconfig wlan0 | grep -i power         # "Power Management:off"
+```
+
+Notes:
+
+- Once this phone runs the DNS server, don't list itself first in
+  `ipv4.dns` until the server works; keep the router/1.1.1.1 so the phone can
+  still resolve (e.g. for `apk`).
+- To set up the new network before moving, the profile can be created without
+  being in range: `sudo nmcli con add type wifi ifname wlan0 con-name
+  server-wifi ssid 'NEW_SSID' wifi-sec.key-mgmt wpa-psk wifi-sec.psk
+  'WIFI_PASSWORD'`, then run step 2 (skip `con up`). It connects automatically
+  when the network is in range.
+- If Wi-Fi is wrong and SSH over Wi-Fi is gone, plug in USB and use
+  `ssh ahmed@172.16.42.1`.
 
 ## Issues found and how they were fixed
 
