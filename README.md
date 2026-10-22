@@ -70,7 +70,7 @@ sudo -v && (while true; do sudo -n -v; sleep 60; done) &
 # 4. build patched packages first: building them during the zip step hits a
 #    pmbootstrap bug (buildroot zap drops the rootfs mount, then
 #    "tar: /mnt/rootfs_samsung-a51: Cannot open"). Re-running also works.
-pmbootstrap build postmarketos-initramfs
+pmbootstrap build postmarketos-initramfs --arch aarch64   # noarch: without --arch it lands in x86_64 only
 pmbootstrap build postmarketos-android-recovery-installer --arch aarch64
 
 # 5. build the TWRP zip, installing onto userdata
