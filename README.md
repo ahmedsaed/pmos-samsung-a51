@@ -15,6 +15,9 @@ patches/pmbootstrap/     fixes for the pmbootstrap checkout   (./pmbootstrap)
 patches/pmaports/        fixes for the pmaports checkout      (./cache_git/pmaports)
 scripts/apply-patches.sh apply all patches (idempotent)
 scripts/seed-distfiles.sh pre-download/verify sources that fail to fetch
+scripts/phone/           scripts to copy to and run on the phone
+  setup-docker.sh        Docker setup for this kernel (idempotent)
+  install-kernel.sh      install a locally built kernel and flash boot.img
 ```
 
 ## Status
@@ -28,6 +31,7 @@ scripts/seed-distfiles.sh pre-download/verify sources that fail to fetch
 | System boots, SSH | works: Dropbear answers on `172.16.42.1:22` ~40 s after boot |
 | SSH key login | works (needed home permission fix), see [After the first boot](#after-the-first-boot) |
 | Wi-Fi | works on <SSID> (DHCP); static IP for the final location documented, see [Wi-Fi](#wi-fi) |
+| Docker | works: containers, published ports, memory/CPU limits, Compose, see [Docker](#docker) |
 | DNS, screen off | not started yet |
 
 ## Device facts
@@ -85,9 +89,17 @@ adb -s <SERIAL> sideload \
   chroot_buildroot_aarch64/var/lib/postmarketos-android-recovery-installer/pmos-samsung-a51.zip
 ```
 
-Note: `pmbootstrap pull` (or a `git pull` in pmaports) will conflict with the
-applied patches. Stash or reset them, pull, then run `scripts/apply-patches.sh`
-again.
+Notes:
+
+- `pmbootstrap pull` (or a `git pull` in pmaports) will conflict with the
+  applied patches. Stash or reset them, pull, then run
+  `scripts/apply-patches.sh` again.
+- Re-running `pmbootstrap install` reuses the existing rootfs chroot and does
+  not upgrade packages already in it. After changing a package that's already
+  installed there (kernel, initramfs, ...), run `pmbootstrap zap` (delete the
+  chroots, keep built packages) before `pmbootstrap install`.
+- After a fresh install, delete the leftover `/in-pmbootstrap` marker on the
+  phone (see [Updating the kernel](#updating-the-kernel-without-reinstalling)).
 
 ### `pmbootstrap init` answers
 
@@ -211,6 +223,111 @@ internally. The `scsc_wlan` module exposes no parameter for it, and Samsung's
 usual controls are Android-only. Accepted: an extra ~50 ms on LAN DNS lookups
 is negligible for a secondary DNS server. Untried ideas: the 2.4 GHz band,
 router settings (DTIM interval), the driver's private ioctls.
+
+### Copying files to the phone
+
+`scp` fails (`/usr/lib/ssh/sftp-server: not found`): modern `scp` uses SFTP,
+which Dropbear doesn't provide, and the phone has no `scp` binary for
+`scp -O` either. Either pipe through ssh:
+
+```sh
+ssh ahmed@PHONE "cat > file.apk" < file.apk
+```
+
+or install `openssh-sftp-server` on the phone, after which `scp`/`sftp` work.
+
+### Updating the kernel without reinstalling
+
+A reinstall wipes the phone's setup (Wi-Fi, SSH key, Docker), so a rebuilt
+kernel is installed in place:
+
+```sh
+# PC
+pmbootstrap build linux-samsung-a51
+ssh ahmed@PHONE "cat > linux-samsung-a51-4.14.113-rN.apk" \
+  < packages/edge/aarch64/linux-samsung-a51-4.14.113-rN.apk
+ssh ahmed@PHONE "cat > install-kernel.sh" < scripts/phone/install-kernel.sh
+
+# phone
+sudo sh ~/install-kernel.sh ~/linux-samsung-a51-4.14.113-rN.apk
+sudo reboot
+```
+
+`install-kernel.sh` backs up the boot partition to `~/boot-backup.img`,
+installs the package, regenerates `/boot/boot.img` and only flashes it to
+`/dev/disk/by-partlabel/boot` if it was really regenerated.
+
+**Leftover `/in-pmbootstrap` marker:** pmbootstrap creates `/in-pmbootstrap`
+while building the rootfs. The recovery zip packs the rootfs while the marker
+still exists, so it ends up on the phone, and every kernel/initramfs update
+then prints `mkinitfs: skipping (running in pmbootstrap)` and leaves the old
+`boot.img`. Remove it once (`sudo rm /in-pmbootstrap`); `install-kernel.sh`
+does this too.
+
+If a new kernel doesn't boot: boot TWRP (Vol Up + Power) and write the backup
+back (`adb push boot-backup.img /tmp/` then
+`adb shell dd if=/tmp/boot-backup.img of=/dev/block/by-name/boot`).
+
+## Docker
+
+Docker works after a kernel rebuild and a few system settings, verified on
+2026-10-22: `hello-world`, nginx with a published port reachable from the LAN,
+memory and CPU limits applied in the kernel, container internet + DNS,
+container-to-container by name on a user network, and `docker compose`.
+
+Setup on the phone (after flashing the kernel from patch `0004`):
+
+```sh
+ssh ahmed@PHONE "cat > setup-docker.sh" < scripts/phone/setup-docker.sh
+sudo sh ~/setup-docker.sh     # on the phone; idempotent
+sudo reboot                   # needed once for the cgroup settings
+```
+
+Log in again afterwards so the `docker` group applies. Expected `docker info`:
+`Cgroup Version: 1`, `Default Runtime: crun`, and only the warning that cgroup
+v1 support is planned to be removed (by May 2029).
+
+Problems found, in the order they appeared:
+
+1. **Missing kernel features.** Docker's `contrib/check-config.sh` (run on the
+   PC against the kernel config) reported required options missing: VETH,
+   BRIDGE, BRIDGE_NETFILTER, NETFILTER_XT_MATCH_ADDRTYPE,
+   NETFILTER_XT_MATCH_IPVS, IP6_NF_NAT, IP6_NF_TARGET_MASQUERADE,
+   CGROUP_DEVICE, POSIX_MQUEUE. Patch `0004` enables them plus CGROUP_PIDS,
+   the CHECKSUM target, and (see 6) BLK_CGROUP, BLK_DEV_THROTTLING,
+   CFQ_GROUP_IOSCHED. The config was regenerated with `scripts/config` +
+   `make olddefconfig` on the kernel source, because the kernel build's
+   `yes "" | make oldconfig` silently drops options with unmet dependencies.
+2. **No nf_tables in the kernel.** Alpine's `iptables` is the nf_tables
+   variant (`iptables v1.8.13 (nf_tables)`). `setup-docker.sh` links the
+   `iptables-legacy` binaries into `/usr/local/sbin` and prepends that to
+   dockerd's `PATH` in `/etc/conf.d/docker`. Don't *replace* `PATH` there:
+   OpenRC sources conf.d in its own helpers, and a replaced `PATH` hides
+   `/usr/libexec/rc/bin` (`checkpath: not found`, docker fails to start).
+   pmOS's `nftables` service can't work on this kernel either (it's
+   `stopped`), so there is no pmOS firewall.
+3. **runc crashes.** runc 1.5.2 is built with libpathrs, which panics on this
+   kernel for every container start (`at least one candidate /proc/thread-self
+   path should work`; Docker only shows `runc did not terminate successfully:
+   exit status 2`). Docker uses **crun** instead (`/etc/docker/daemon.json`,
+   `default-runtime: crun`).
+4. **cgroup v2 device control needs Linux 4.15.** With OpenRC's default
+   unified cgroups, crun fails with `bpf create: Invalid argument`
+   (BPF_PROG_TYPE_CGROUP_DEVICE doesn't exist in 4.14). On 4.14, v2 also lacks
+   the cpu and cpuset controllers. Fix: `rc_cgroup_mode="hybrid"` in
+   `/etc/rc.conf`, so Docker uses cgroup v1 (which also enables CPU limits).
+5. **Android's `schedtune` controller.** In hybrid mode OpenRC mounts every v1
+   controller, including Samsung/Android's `schedtune`, which only allows a few
+   groups. crun creates one per container and gets `Out of memory` (no free
+   group slots, not RAM). Fix: `rc_cgroup_controllers="schedtune"`; in hybrid
+   mode, controllers listed there aren't mounted as v1, and schedtune has no v2
+   equivalent, so it simply disappears.
+6. **No blkio controller.** Under cgroup v1, crun needs a blkio hierarchy
+   (`open /sys/fs/cgroup/blkio/docker/...: No such file or directory`); the
+   kernel had `CONFIG_BLK_CGROUP` off. Added to patch `0004` (kernel pkgrel 2).
+
+The pmOS package `postmarketos-config-nftables-docker` gets pulled in with
+Docker; it only adds rules to pmOS's nftables firewall and is harmless here.
 
 ## Issues found and how they were fixed
 
@@ -465,3 +582,4 @@ running `mount_subpartitions`: it picked `/dev/loop0p2` without direct I/O and
 - Recovery installer: the 4K-sector patch.
 - Initramfs: no direct I/O when sector sizes differ. It could also detect the
   mismatch itself (e.g. fall back to `kpartx`).
+- linux-samsung-a51: the Docker options (patch `0004`).
