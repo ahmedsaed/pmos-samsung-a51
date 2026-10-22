@@ -201,6 +201,17 @@ Notes:
 - If Wi-Fi is wrong and SSH over Wi-Fi is gone, plug in USB and use
   `ssh ahmed@172.16.42.1`.
 
+**Known limitation: incoming Wi-Fi latency (accepted).** With power saving
+disabled (`Power Management:off`) and a strong link (5 GHz, 95%, 1170 Mbit/s),
+pings *to* the phone still take 10-106 ms (avg ~60 ms); phone -> router is
+6-56 ms (avg ~15 ms). Ruled out: signal, CPU idle (same results with a core
+kept busy), USB/PC (both ~0.6 ms). The maximum matches the AP beacon interval
+(102.4 ms), which suggests the Wi-Fi firmware still does power saving
+internally. The `scsc_wlan` module exposes no parameter for it, and Samsung's
+usual controls are Android-only. Accepted: an extra ~50 ms on LAN DNS lookups
+is negligible for a secondary DNS server. Untried ideas: the 2.4 GHz band,
+router settings (DTIM interval), the driver's private ioctls.
+
 ## Issues found and how they were fixed
 
 ### 1. Firmware download fails: `dumps.tadiphone.dev` is down
