@@ -268,9 +268,17 @@ then prints `mkinitfs: skipping (running in pmbootstrap)` and leaves the old
 `boot.img`. Remove it once (`sudo rm /in-pmbootstrap`); `install-kernel.sh`
 does this too.
 
-If a new kernel doesn't boot: boot TWRP (Vol Up + Power) and write the backup
-back (`adb push boot-backup.img /tmp/` then
-`adb shell dd if=/tmp/boot-backup.img of=/dev/block/by-name/boot`).
+Copy the backup to the PC before rebooting
+(`ssh ahmed@PHONE "cat boot-backup.img" > boot-backup.img`): TWRP can't read
+the pmOS partition, so the copy on the phone is out of reach if the new kernel
+doesn't boot. Restore: boot TWRP (Vol Up + Power), then
+`adb push boot-backup.img /tmp/` and
+`adb shell dd if=/tmp/boot-backup.img of=/dev/block/by-name/boot`. Without a
+backup, `chroot_rootfs_samsung-a51/boot/boot.img` (from the last
+`pmbootstrap install`, if not zapped) also boots the system.
+
+The first boot after a kernel update can take a few minutes longer than usual
+(seen after the r3 update).
 
 ### Keep the patched initramfs (pin it)
 
