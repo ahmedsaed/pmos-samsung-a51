@@ -1,0 +1,28 @@
+diff --git a/device/archived/linux-samsung-a51/APKBUILD b/device/archived/linux-samsung-a51/APKBUILD
+index aeb69a4cd9..7af0db657a 100644
+--- a/device/archived/linux-samsung-a51/APKBUILD
++++ b/device/archived/linux-samsung-a51/APKBUILD
+@@ -5,7 +5,7 @@
+ maintainer=""
+ pkgname=linux-samsung-a51
+ pkgver=4.14.113
+-pkgrel=2
++pkgrel=3
+ pkgdesc="Samsung Galaxy A51 kernel fork"
+ arch="aarch64"
+ _carch="arm64"
+@@ -75,6 +75,14 @@ package() {
+ 	make dtbs_install O="$_outdir" ARCH="$_carch" \
+ 		INSTALL_DTBS_PATH="$pkgdir"/boot/dtbs
+ 
++	# Ship modules.builtin and friends: without them modprobe can't tell
++	# that a driver is built in and fails (e.g. "modprobe zram" in
++	# postmarketos-zram-swap). depmod runs on the device via apk trigger.
++	make modules_install O="$_outdir" ARCH="$_carch" CC="${CC:-gcc}" \
++		KBUILD_BUILD_VERSION="$((pkgrel + 1 ))-postmarketOS" \
++		INSTALL_MOD_PATH="$pkgdir"/usr
++	rm -f "$pkgdir"/usr/lib/modules/*/build "$pkgdir"/usr/lib/modules/*/source
++
+ 	# Generate DTB & DTBO
+ 	## DTB (apply configuration)
+ 	dtbdir="$_outdir"/arch/$_carch/boot/dts/exynos

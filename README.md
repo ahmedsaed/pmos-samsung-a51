@@ -34,7 +34,7 @@ scripts/phone/           scripts to copy to and run on the phone
 | Wi-Fi | works on <SSID> (DHCP); static IP for the final location documented, see [Wi-Fi](#wi-fi) |
 | Docker | works: containers, published ports, memory/CPU limits, Compose, see [Docker](#docker) |
 | Battery charge limit | works: stops at 80%, see [Battery charge limit](#battery-charge-limit) |
-| zram swap | works after a fix (pmOS defaulted to zstd), see [zram swap](#zram-swap-compressed-swap-in-ram) |
+| zram swap | fixed in patches `0005` + `0006`, waiting for the build and install, see [zram swap](#zram-swap-compressed-swap-in-ram) |
 | AdGuard Home (secondary DNS) | works in Docker (host network); settings to be synced from the primary |
 | Tailscale, Beszel agent | work in Docker (Tailscale with legacy iptables); idle load average reads ~17, see [Load average](#load-average-is-17-when-idle-harmless) |
 
@@ -253,7 +253,7 @@ ssh ahmed@PHONE "cat > linux-samsung-a51-4.14.113-rN.apk" \
 ssh ahmed@PHONE "cat > install-kernel.sh" < scripts/phone/install-kernel.sh
 
 # phone
-sudo sh ~/install-kernel.sh ~/linux-samsung-a51-4.14.113-rN.apk
+sudo sh ~/install-kernel.sh ~/linux-samsung-a51-4.14.113-rN.apk   # several .apk files can be given
 sudo reboot
 ```
 
@@ -324,31 +324,61 @@ holds 60-70%, but it can't be switched off without a reboot.)
 
 The phone has no disk swap, and pmOS sets up zram swap at boot with its
 `postmarketos-zram-swap` service (enabled by default). On this phone the
-service **failed silently** and there was no swap at all: its `zramstart`
-script defaults to **zstd** compression, and this kernel's zram only offers
-`lzo`, `lzo-rle` and `deflate` (`cat /sys/block/zram0/comp_algorithm`;
-`CONFIG_CRYPTO_ZSTD` and `CONFIG_CRYPTO_LZ4` are off). It's the same
-zstd-by-default problem as [Issue 7](#7-boot-loop-penguins-then-instant-reboot-kernel-panic).
+service **failed silently** and there was no swap at all, for two reasons:
+
+1. **`modprobe zram` fails.** `zramstart` starts with
+   `modprobe -q zram num_devices=1` under `set -e`. zram is built into the
+   kernel, which is fine on other devices because `modprobe` finds it in
+   `modules.builtin`. But the A51 kernel package never ran
+   `make modules_install`, so there is no `/lib/modules/4.14.113/` at all,
+   `modprobe` exits 1, and the script stops before creating the swap.
+   Nothing else on the phone was affected (Docker's log has no modprobe
+   errors).
+2. **zstd compression.** `zramstart` defaults to zstd, and this kernel's zram
+   only offers `lzo`, `lzo-rle` and `deflate`
+   (`cat /sys/block/zram0/comp_algorithm`; `CONFIG_CRYPTO_ZSTD` and
+   `CONFIG_CRYPTO_LZ4` are off). It's the same zstd-by-default problem as
+   [Issue 7](#7-boot-loop-penguins-then-instant-reboot-kernel-panic).
 
 Checked and fine on this kernel: `CONFIG_ZRAM=y`, and the script's
 `vm.swappiness=180` (stock 4.14 caps swappiness at 100, but Samsung's
 `CONFIG_INCREASE_MAXIMUM_SWAPPINESS=y` raises the limit to 200).
 
-**Fix:** set `deviceinfo_zram_swap_algo="lzo-rle"`. For new installs,
-patch `0005` adds it to the device package. On an installed phone, override
-it in `/etc/deviceinfo` (read after the package's deviceinfo) and start the
-service:
+**Fix:**
+
+- Patch `0006` (`linux-samsung-a51` pkgrel 3) adds `make modules_install`
+  to the kernel package, installing `modules.builtin`, `modules.order` and
+  the two real modules (TCP Westwood/HTCP) to `/usr/lib/modules/4.14.113/`.
+  apk's kmod trigger runs `depmod` on the device.
+- Patch `0005` (`device-samsung-a51` pkgrel 2) sets
+  `deviceinfo_zram_swap_algo="lzo-rle"`.
+
+On an installed phone, build both and install them in place (the device
+package changes deviceinfo, which needs a new `boot.img` too):
 
 ```sh
-echo 'deviceinfo_zram_swap_algo="lzo-rle"' | sudo tee /etc/deviceinfo && sudo rc-service postmarketos-zram-swap start
+# PC
+pmbootstrap build linux-samsung-a51 device-samsung-a51
+for p in linux-samsung-a51-4.14.113-r3 device-samsung-a51-5-r2; do
+  ssh ahmed@PHONE "cat > $p.apk" < packages/edge/aarch64/$p.apk
+done
+
+# phone
+sudo sh ~/install-kernel.sh ~/linux-samsung-a51-4.14.113-r3.apk ~/device-samsung-a51-5-r2.apk
+sudo reboot
 ```
 
-Check:
+If `/etc/deviceinfo` was created as a stopgap
+(`deviceinfo_zram_swap_algo="lzo-rle"`), it can stay or be removed; the
+device package now sets the same value.
+
+Check after the reboot:
 
 ```sh
 cat /proc/swaps            # /dev/zram0, ~8 GB (pmOS default: 150% of RAM)
 zramctl                    # algorithm lzo-rle, data vs. compressed size
 rc-service postmarketos-zram-swap status    # started
+ls /lib/modules/4.14.113/  # modules.builtin, modules.dep, ...
 ```
 
 zram only uses RAM for what is actually swapped out, compressed (lzo-rle

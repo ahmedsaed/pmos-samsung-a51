@@ -1,15 +1,15 @@
 #!/bin/sh
-# Install a locally built kernel package and flash the new boot.img.
-# Usage: sudo sh ~/install-kernel.sh ~/linux-samsung-a51-<ver>.apk
+# Install locally built kernel/device packages and flash the new boot.img.
+# Usage: sudo sh ~/install-kernel.sh ~/linux-samsung-a51-<ver>.apk [more.apk ...]
 set -eu
-apk_file="$1"
+[ $# -ge 1 ] || { echo "usage: $0 package.apk [package.apk ...]"; exit 1; }
 boot_part=/dev/disk/by-partlabel/boot
 
 # Back up the current boot partition (restore from TWRP if the new one fails)
 dd if="$boot_part" of=/home/ahmed/boot-backup.img bs=1M 2>/dev/null
 echo "backed up boot partition to /home/ahmed/boot-backup.img"
 
-apk add --allow-untrusted "$apk_file"
+apk add --allow-untrusted "$@"
 
 # A leftover pmbootstrap marker makes mkinitfs skip silently
 rm -f /in-pmbootstrap

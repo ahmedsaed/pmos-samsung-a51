@@ -25,7 +25,7 @@ Everything goes through postmarketOS's own GitLab and wiki, not GitHub:
 | 5 | Cross binutils for clang builds | pmbootstrap | merge request | ~30 min | todo |
 | 6 | pmbootstrap build traps | pmbootstrap | issues | ~30 min | todo |
 | 7 | Docker kernel options (patch `0004`) | pmaports | merge request | ~1 h | todo |
-| 9 | zram swap algorithm (patch `0005`) + zramstart check | pmaports | merge request + issue | ~30 min | todo |
+| 9 | zram swap: algorithm (`0005`), kernel module metadata (`0006`), zramstart checks | pmaports | merge request + issue | ~30 min | todo |
 | 8 | Become the A51's maintainer | pmaports | merge request | ongoing | decide later |
 
 Suggested order: 1 and 2 (quick wins; 9 can go in the same MR as 2), then 3 (widest impact), then the rest.
@@ -161,13 +161,19 @@ on the phone now and then, and answer questions about it.
 ## 9. zram swap: lzo-rle for the A51, and a check in zramstart
 
 `postmarketos-zram-swap` (enabled by default) failed silently on the A51 and
-left it without swap: `zramstart` defaults to `zstd`, and this kernel's zram
-only offers `lzo`, `lzo-rle` and `deflate`.
+left it without swap, for two reasons: `zramstart` runs `modprobe zram`,
+which fails because the A51 kernel package ships no `/lib/modules` (zram is
+built in, but there's no `modules.builtin` to say so); and it defaults to
+`zstd`, while this kernel's zram only offers `lzo`, `lzo-rle` and `deflate`.
 
 - Merge request: patch `0005` (`deviceinfo_zram_swap_algo="lzo-rle"`, pkgrel
   bump, checksum). It touches the same deviceinfo as item 2, so it can be one
   MR with two commits.
-- Issue (or MR) for `zramstart` in `postmarketos-zram`: its own TODO says
+- Merge request: patch `0006` (`make modules_install` in
+  `linux-samsung-a51`, like most other kernels in pmaports). Can go with the
+  Docker options MR (item 7), since both touch the kernel package.
+- Issue (or MR) for `zramstart` in `postmarketos-zram`: skip `modprobe` when
+  `/sys/class/zram-control` already exists (built-in zram). Also, its own TODO says
   "Ensure deviceinfo uses valid and usable algorithm for running kernel". A
   fallback is simple: if the chosen algorithm isn't listed in
   `/sys/block/zramN/comp_algorithm`, use the kernel's current default (the
