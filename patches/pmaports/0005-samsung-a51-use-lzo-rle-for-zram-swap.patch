@@ -1,0 +1,37 @@
+diff --git a/device/archived/device-samsung-a51/APKBUILD b/device/archived/device-samsung-a51/APKBUILD
+index 9e89186c68..b66882008f 100644
+--- a/device/archived/device-samsung-a51/APKBUILD
++++ b/device/archived/device-samsung-a51/APKBUILD
+@@ -5,7 +5,7 @@ maintainer=""
+ pkgname=device-samsung-a51
+ pkgdesc="Samsung Galaxy A51"
+ pkgver=5
+-pkgrel=1
++pkgrel=2
+ url="https://postmarketos.org"
+ license="MIT"
+ arch="aarch64"
+@@ -38,7 +38,7 @@ package() {
+ }
+ 
+ sha512sums="
+-a1645eae1e79b10f8c9aac5cba5181cd2aa575492d92d57dc23f08980b588a1729f6054ffcce0e9b6b581c5f6ebe6144bb8b4ed17c1f9e085c0aa33e4e21dc53  deviceinfo
++4f4b0d02a631aebe94c46ce25bdeb4b8dab56b0dc47e68743944100499b5c2f20b7b44e4736033107d1117abdacaae618819d70b1db72162c6aec8c3d60771f3  deviceinfo
+ cfeb36f1157fa7413c046d72fd2232956cb4056b30124ac39bae6fdc9f0b49cabc2b6d4b1d4ef94c4191c93e92a770fc17b81b5e02c0dd618efbe95a3da4f7b5  kernel-cmdline.conf
+ 10dc120045062a47b11ab4762dcb4425b2a521b2bcede4e4d3b691f9f2cf2ced77bdff059992ff55cd11af59663802ecb8e750ca02ee70cfa8950b9a090b5dfb  NetworkManager-conf.d-swlan0-p2p0-unmanaged.conf
+ "
+diff --git a/device/archived/device-samsung-a51/deviceinfo b/device/archived/device-samsung-a51/deviceinfo
+index 4fb578d4ba..706fee2f12 100644
+--- a/device/archived/device-samsung-a51/deviceinfo
++++ b/device/archived/device-samsung-a51/deviceinfo
+@@ -27,6 +27,10 @@ deviceinfo_flash_offset_ramdisk="0x01000000"
+ deviceinfo_flash_offset_second="0xf0000000"
+ deviceinfo_flash_offset_tags="0x00000100"
+ deviceinfo_initfs_compression="gzip"
++
++# The kernel has no zstd for zram (only lzo, lzo-rle, deflate); zstd is
++# zramstart's default and makes postmarketos-zram-swap fail at boot.
++deviceinfo_zram_swap_algo="lzo-rle"
+ deviceinfo_flash_heimdall_partition_kernel="boot"
+ deviceinfo_flash_heimdall_partition_rootfs="super"
+ 

@@ -25,9 +25,10 @@ Everything goes through postmarketOS's own GitLab and wiki, not GitHub:
 | 5 | Cross binutils for clang builds | pmbootstrap | merge request | ~30 min | todo |
 | 6 | pmbootstrap build traps | pmbootstrap | issues | ~30 min | todo |
 | 7 | Docker kernel options (patch `0004`) | pmaports | merge request | ~1 h | todo |
+| 9 | zram swap algorithm (patch `0005`) + zramstart check | pmaports | merge request + issue | ~30 min | todo |
 | 8 | Become the A51's maintainer | pmaports | merge request | ongoing | decide later |
 
-Suggested order: 1 and 2 (quick wins), then 3 (widest impact), then the rest.
+Suggested order: 1 and 2 (quick wins; 9 can go in the same MR as 2), then 3 (widest impact), then the rest.
 Claude can prepare the commits, issue texts and wiki markup; submitting has to
 be done from your accounts.
 
@@ -156,3 +157,19 @@ The A51 is archived because it had no maintainer. Adding yourself as
 `maintainer=` to `device-samsung-a51` and `linux-samsung-a51` moves it back to
 `device/testing` and keeps it in future sweeps. The commitment: test changes
 on the phone now and then, and answer questions about it.
+
+## 9. zram swap: lzo-rle for the A51, and a check in zramstart
+
+`postmarketos-zram-swap` (enabled by default) failed silently on the A51 and
+left it without swap: `zramstart` defaults to `zstd`, and this kernel's zram
+only offers `lzo`, `lzo-rle` and `deflate`.
+
+- Merge request: patch `0005` (`deviceinfo_zram_swap_algo="lzo-rle"`, pkgrel
+  bump, checksum). It touches the same deviceinfo as item 2, so it can be one
+  MR with two commits.
+- Issue (or MR) for `zramstart` in `postmarketos-zram`: its own TODO says
+  "Ensure deviceinfo uses valid and usable algorithm for running kernel". A
+  fallback is simple: if the chosen algorithm isn't listed in
+  `/sys/block/zramN/comp_algorithm`, use the kernel's current default (the
+  one in brackets) and log a warning, instead of failing. Probably affects
+  every old downstream kernel without `CONFIG_CRYPTO_ZSTD`.

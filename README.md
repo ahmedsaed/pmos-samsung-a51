@@ -34,6 +34,7 @@ scripts/phone/           scripts to copy to and run on the phone
 | Wi-Fi | works on <SSID> (DHCP); static IP for the final location documented, see [Wi-Fi](#wi-fi) |
 | Docker | works: containers, published ports, memory/CPU limits, Compose, see [Docker](#docker) |
 | Battery charge limit | works: stops at 80%, see [Battery charge limit](#battery-charge-limit) |
+| zram swap | works after a fix (pmOS defaulted to zstd), see [zram swap](#zram-swap-compressed-swap-in-ram) |
 | AdGuard Home (secondary DNS) | works in Docker (host network); settings to be synced from the primary |
 | Tailscale, Beszel agent | work in Docker (Tailscale with legacy iptables); idle load average reads ~17, see [Load average](#load-average-is-17-when-idle-harmless) |
 
@@ -318,6 +319,40 @@ dmesg | grep "stop charging"     # sec_bat_check_full_capacity : stop charging(9
 Above the limit it reports `Not charging` with ~0 mA into the battery and
 drifts down slowly; from then on it holds 78-80%. (`store_mode` also exists and
 holds 60-70%, but it can't be switched off without a reboot.)
+
+### zram swap (compressed swap in RAM)
+
+The phone has no disk swap, and pmOS sets up zram swap at boot with its
+`postmarketos-zram-swap` service (enabled by default). On this phone the
+service **failed silently** and there was no swap at all: its `zramstart`
+script defaults to **zstd** compression, and this kernel's zram only offers
+`lzo`, `lzo-rle` and `deflate` (`cat /sys/block/zram0/comp_algorithm`;
+`CONFIG_CRYPTO_ZSTD` and `CONFIG_CRYPTO_LZ4` are off). It's the same
+zstd-by-default problem as [Issue 7](#7-boot-loop-penguins-then-instant-reboot-kernel-panic).
+
+Checked and fine on this kernel: `CONFIG_ZRAM=y`, and the script's
+`vm.swappiness=180` (stock 4.14 caps swappiness at 100, but Samsung's
+`CONFIG_INCREASE_MAXIMUM_SWAPPINESS=y` raises the limit to 200).
+
+**Fix:** set `deviceinfo_zram_swap_algo="lzo-rle"`. For new installs,
+patch `0005` adds it to the device package. On an installed phone, override
+it in `/etc/deviceinfo` (read after the package's deviceinfo) and start the
+service:
+
+```sh
+echo 'deviceinfo_zram_swap_algo="lzo-rle"' | sudo tee /etc/deviceinfo && sudo rc-service postmarketos-zram-swap start
+```
+
+Check:
+
+```sh
+cat /proc/swaps            # /dev/zram0, ~8 GB (pmOS default: 150% of RAM)
+zramctl                    # algorithm lzo-rle, data vs. compressed size
+rc-service postmarketos-zram-swap status    # started
+```
+
+zram only uses RAM for what is actually swapped out, compressed (lzo-rle
+typically 2-3x), so the 8 GB size is a ceiling, not a reservation.
 
 ## Docker
 
