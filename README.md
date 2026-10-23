@@ -34,7 +34,7 @@ scripts/phone/           scripts to copy to and run on the phone
 | Wi-Fi | works on <SSID> (DHCP); static IP for the final location documented, see [Wi-Fi](#wi-fi) |
 | Docker | works: containers, published ports, memory/CPU limits, Compose, see [Docker](#docker) |
 | Battery charge limit | works: stops at 80%, see [Battery charge limit](#battery-charge-limit) |
-| zram swap | fixed in patches `0005` + `0006`, waiting for the build and install, see [zram swap](#zram-swap-compressed-swap-in-ram) |
+| zram swap | works: 8.2 GB lzo-rle at boot (patches `0005` + `0006`), see [zram swap](#zram-swap-compressed-swap-in-ram) |
 | AdGuard Home (secondary DNS) | works in Docker (host network); settings to be synced from the primary |
 | Tailscale, Beszel agent | work in Docker (Tailscale with legacy iptables); idle load average reads ~17, see [Load average](#load-average-is-17-when-idle-harmless) |
 
